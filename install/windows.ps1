@@ -14,18 +14,27 @@ param(
 $ErrorActionPreference = "Stop"
 $Repo = "jus1-c/sshm"
 
-function Write-ColorOutput($ForegroundColor) {
+function Write-ColorOutput {
+    param(
+        [ConsoleColor]$ForegroundColor,
+        [Parameter(ValueFromRemainingArguments = $true)]
+        [object[]]$Message
+    )
+
     $fc = $host.UI.RawUI.ForegroundColor
     $host.UI.RawUI.ForegroundColor = $ForegroundColor
-    if ($args) {
-        Write-Output $args
+    try {
+        if ($Message) {
+            Write-Host ($Message -join " ")
+        }
+    } finally {
+        $host.UI.RawUI.ForegroundColor = $fc
     }
-    $host.UI.RawUI.ForegroundColor = $fc
 }
 
-function Write-Info { Write-ColorOutput Green $args }
-function Write-Warn { Write-ColorOutput Yellow $args }
-function Write-Fail { Write-ColorOutput Red $args }
+function Write-Info { Write-ColorOutput Green @args }
+function Write-Warn { Write-ColorOutput Yellow @args }
+function Write-Fail { Write-ColorOutput Red @args }
 
 function Get-TargetVersion {
     if ($Version -eq "latest") {
