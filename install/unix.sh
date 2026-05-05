@@ -50,8 +50,17 @@ setSystem() {
         exit 1
     fi
 
-    if [ "$(id -u)" -ne 0 ] && { [ ! -d "$INSTALL_DIR" ] || [ ! -w "$INSTALL_DIR" ]; }; then
-        USE_SUDO="true"
+    if [ "$(id -u)" -ne 0 ]; then
+        if [ -d "$INSTALL_DIR" ]; then
+            if [ ! -w "$INSTALL_DIR" ]; then
+                USE_SUDO="true"
+            fi
+        else
+            INSTALL_PARENT=$(dirname "$INSTALL_DIR")
+            if [ ! -d "$INSTALL_PARENT" ] || [ ! -w "$INSTALL_PARENT" ]; then
+                USE_SUDO="true"
+            fi
+        fi
     fi
 }
 
