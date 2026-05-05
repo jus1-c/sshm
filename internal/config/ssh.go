@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	gossh "golang.org/x/crypto/ssh"
 )
 
 func getHomeDir() (string, error) {
@@ -106,6 +108,101 @@ func GetSSHDirectory() (string, error) {
 	}
 
 	return filepath.Join(homeDir, ".ssh"), nil
+}
+
+// GetDefaultPublicKeyDir returns the directory used for public keys saved by SSHM.
+func GetDefaultPublicKeyDir() (string, error) {
+	sshDir, err := GetSSHDirectory()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(sshDir, "ssh-key"), nil
+}
+
+// SavePublicKeyForHost validates and saves a public key for a host.
+func SavePublicKeyForHost(user, hostname, publicKey string) (string, error) {
+	return savePublicKeyForHost(user, hostname, publicKey, false)
+}
+
+// UpdatePublicKeyForHost validates and saves a public key, replacing an existing host key file.
+func UpdatePublicKeyForHost(user, hostname, publicKey string) (string, error) {
+	return savePublicKeyForHost(user, hostname, publicKey, true)
+}
+
+func savePublicKeyForHost(user, hostname, publicKey string, overwrite bool) (string, error) {
+	publicKey = strings.TrimSpace(publicKey)
+	if publicKey == "" {
+		return "", nil
+	}
+	if err := ValidatePublicKey(publicKey); err != nil {
+		return "", err
+	}
+
+	keyDir, err := GetDefaultPublicKeyDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(keyDir, 0700); err != nil {
+		return "", err
+	}
+
+	filename := sanitizePublicKeyFilenamePart(user) + "_" + sanitizePublicKeyFilenamePart(hostname) + ".pub"
+	path := filepath.Join(keyDir, filename)
+	if existing, err := os.ReadFile(path); err == nil {
+		if strings.TrimSpace(string(existing)) == publicKey {
+			return path, nil
+		}
+		if overwrite {
+			if err := os.WriteFile(path, []byte(publicKey+"\n"), 0644); err != nil {
+				return "", err
+			}
+			return path, nil
+		}
+		return "", fmt.Errorf("public key file already exists with different content: %s", path)
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	if err := os.WriteFile(path, []byte(publicKey+"\n"), 0644); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ValidatePublicKey checks that a pasted public key is in OpenSSH authorized_keys format.
+func ValidatePublicKey(publicKey string) error {
+	_, _, _, rest, err := gossh.ParseAuthorizedKey([]byte(strings.TrimSpace(publicKey)))
+	if err != nil {
+		return fmt.Errorf("invalid public key: %w", err)
+	}
+	if strings.TrimSpace(string(rest)) != "" {
+		return fmt.Errorf("public key contains extra data")
+	}
+	return nil
+}
+
+func sanitizePublicKeyFilenamePart(value string) string {
+	value = strings.TrimSpace(value)
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '.', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('_')
+		}
+	}
+	sanitized := strings.Trim(b.String(), "_")
+	if sanitized == "" {
+		return "key"
+	}
+	return sanitized
 }
 
 // ensureSSHDirectory creates the .ssh directory with appropriate permissions

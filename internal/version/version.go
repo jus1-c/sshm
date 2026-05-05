@@ -99,7 +99,7 @@ func CheckForUpdates(ctx context.Context, currentVersion string) (*UpdateInfo, e
 
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://api.github.com/repos/Gu1llaum-3/sshm/releases/latest", nil)
+		"https://api.github.com/repos/jus1-c/sshm/releases/latest", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

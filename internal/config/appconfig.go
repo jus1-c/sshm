@@ -5,7 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
+
+const DefaultAutoSyncTTL = "24h"
 
 // KeyBindings represents configurable key bindings for the application
 type KeyBindings struct {
@@ -16,10 +20,30 @@ type KeyBindings struct {
 	DisableEscQuit bool `json:"disable_esc_quit"`
 }
 
+// SyncConfig represents private repository synchronization settings.
+type SyncConfig struct {
+	Enabled             bool   `json:"enabled"`
+	RepoURL             string `json:"repo_url"`
+	Branch              string `json:"branch"`
+	LocalPath           string `json:"local_path"`
+	AutoSyncOnStartup   bool   `json:"auto_sync_on_startup"`
+	AutoSyncTTL         string `json:"auto_sync_ttl"`
+	SyncSSHConfig       *bool  `json:"sync_ssh_config,omitempty"`
+	SyncIncludedConfigs *bool  `json:"sync_included_configs,omitempty"`
+	SyncPublicKeys      *bool  `json:"sync_public_keys,omitempty"`
+	PublicKeyDir        string `json:"public_key_dir"`
+	CommitAuthorName    string `json:"commit_author_name,omitempty"`
+	CommitAuthorEmail   string `json:"commit_author_email,omitempty"`
+	LastSyncAt          string `json:"last_sync_at,omitempty"`
+	LastSyncStatus      string `json:"last_sync_status,omitempty"`
+	LastSyncError       string `json:"last_sync_error,omitempty"`
+}
+
 // AppConfig represents the main application configuration
 type AppConfig struct {
 	CheckForUpdates *bool       `json:"check_for_updates,omitempty"`
 	KeyBindings     KeyBindings `json:"key_bindings"`
+	Sync            SyncConfig  `json:"sync"`
 }
 
 // IsUpdateCheckEnabled returns true if the update check is enabled (default: true)
@@ -38,11 +62,114 @@ func GetDefaultKeyBindings() KeyBindings {
 	}
 }
 
+func syncDefaultBool(value bool) *bool {
+	return &value
+}
+
+// GetDefaultSyncConfig returns the default sync configuration.
+func GetDefaultSyncConfig() SyncConfig {
+	configDir, err := GetSSHMConfigDir()
+	if err != nil {
+		configDir = filepath.Join("~", ".config", "sshm")
+	}
+
+	publicKeyDir, err := GetDefaultPublicKeyDir()
+	if err != nil {
+		publicKeyDir = filepath.Join("~", ".ssh", "ssh-key")
+	}
+
+	return SyncConfig{
+		Branch:              "main",
+		LocalPath:           filepath.Join(configDir, "sync-repo"),
+		AutoSyncTTL:         DefaultAutoSyncTTL,
+		SyncSSHConfig:       syncDefaultBool(true),
+		SyncIncludedConfigs: syncDefaultBool(true),
+		SyncPublicKeys:      syncDefaultBool(true),
+		PublicKeyDir:        publicKeyDir,
+	}
+}
+
 // GetDefaultAppConfig returns the default application configuration
 func GetDefaultAppConfig() AppConfig {
 	return AppConfig{
 		KeyBindings: GetDefaultKeyBindings(),
+		Sync:        GetDefaultSyncConfig(),
 	}
+}
+
+// ShouldSyncSSHConfig returns true when SSH config files should be synced.
+func (c SyncConfig) ShouldSyncSSHConfig() bool {
+	return c.SyncSSHConfig == nil || *c.SyncSSHConfig
+}
+
+// ShouldSyncIncludedConfigs returns true when included SSH config files should be synced.
+func (c SyncConfig) ShouldSyncIncludedConfigs() bool {
+	return c.SyncIncludedConfigs == nil || *c.SyncIncludedConfigs
+}
+
+// ShouldSyncPublicKeys returns true when public keys should be synced.
+func (c SyncConfig) ShouldSyncPublicKeys() bool {
+	return c.SyncPublicKeys == nil || *c.SyncPublicKeys
+}
+
+// ValidateAutoSyncTTL returns a normalized positive Go duration string for auto-sync TTL.
+func ValidateAutoSyncTTL(value string) (string, error) {
+	ttl := strings.TrimSpace(value)
+	if ttl == "" {
+		return DefaultAutoSyncTTL, nil
+	}
+	duration, err := time.ParseDuration(ttl)
+	if err != nil || duration <= 0 {
+		return "", errors.New("auto-sync TTL must be a positive duration, for example 24h")
+	}
+	return ttl, nil
+}
+
+// AutoSyncTTLDuration returns the configured auto-sync TTL or the default if invalid.
+func (c SyncConfig) AutoSyncTTLDuration() time.Duration {
+	ttl, err := ValidateAutoSyncTTL(c.AutoSyncTTL)
+	if err != nil {
+		ttl = DefaultAutoSyncTTL
+	}
+	duration, _ := time.ParseDuration(ttl)
+	return duration
+}
+
+// ShouldAutoSync reports whether startup auto-sync should run at the given time.
+func (c SyncConfig) ShouldAutoSync(now time.Time) bool {
+	if !c.Enabled || !c.AutoSyncOnStartup {
+		return false
+	}
+
+	lastSync := strings.TrimSpace(c.LastSyncAt)
+	if lastSync == "" {
+		return true
+	}
+
+	lastSyncAt, err := time.Parse(time.RFC3339, lastSync)
+	if err != nil {
+		return true
+	}
+	if now.Before(lastSyncAt) {
+		return false
+	}
+
+	return now.Sub(lastSyncAt) >= c.AutoSyncTTLDuration()
+}
+
+// SetSyncSSHConfig updates the SSH config sync option.
+func (c *SyncConfig) SetSyncSSHConfig(value bool) {
+	c.SyncSSHConfig = syncDefaultBool(value)
+}
+
+// SetSyncIncludedConfigs updates the included config sync option.
+func (c *SyncConfig) SetSyncIncludedConfigs(value bool) {
+	c.SyncIncludedConfigs = syncDefaultBool(value)
+}
+
+// SetSyncPublicKeys updates the public key sync option.
+func (c *SyncConfig) SetSyncPublicKeys(value bool) {
+	c.SyncPublicKeys = syncDefaultBool(value)
 }
 
 // GetAppConfigPath returns the path to the application config file
@@ -132,6 +259,30 @@ func mergeWithDefaults(config AppConfig) AppConfig {
 	// If QuitKeys is empty, use defaults
 	if len(config.KeyBindings.QuitKeys) == 0 {
 		config.KeyBindings.QuitKeys = defaults.KeyBindings.QuitKeys
+	}
+
+	if config.Sync.Branch == "" {
+		config.Sync.Branch = defaults.Sync.Branch
+	}
+	if config.Sync.LocalPath == "" {
+		config.Sync.LocalPath = defaults.Sync.LocalPath
+	}
+	if config.Sync.PublicKeyDir == "" {
+		config.Sync.PublicKeyDir = defaults.Sync.PublicKeyDir
+	}
+	if ttl, err := ValidateAutoSyncTTL(config.Sync.AutoSyncTTL); err == nil {
+		config.Sync.AutoSyncTTL = ttl
+	} else {
+		config.Sync.AutoSyncTTL = defaults.Sync.AutoSyncTTL
+	}
+	if config.Sync.SyncSSHConfig == nil {
+		config.Sync.SyncSSHConfig = defaults.Sync.SyncSSHConfig
+	}
+	if config.Sync.SyncIncludedConfigs == nil {
+		config.Sync.SyncIncludedConfigs = defaults.Sync.SyncIncludedConfigs
+	}
+	if config.Sync.SyncPublicKeys == nil {
+		config.Sync.SyncPublicKeys = defaults.Sync.SyncPublicKeys
 	}
 
 	return config

@@ -42,6 +42,7 @@ const (
 	ViewPortForward
 	ViewHelp
 	ViewFileSelector
+	ViewSync
 )
 
 // PortForwardType defines the type of port forwarding
@@ -85,6 +86,11 @@ type Model struct {
 	// Application configuration
 	appConfig *config.AppConfig
 
+	// Sync status for background startup sync
+	syncRunning     bool
+	syncStatus      string
+	syncStatusError bool
+
 	// Version update information
 	updateInfo     *version.UpdateInfo
 	currentVersion string
@@ -98,6 +104,7 @@ type Model struct {
 	portForwardForm  *portForwardModel
 	helpForm         *helpModel
 	fileSelectorForm *fileSelectorModel
+	syncMenu         *syncMenuModel
 
 	// Terminal size and styles
 	width  int

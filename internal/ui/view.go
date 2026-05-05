@@ -43,6 +43,10 @@ func (m Model) View() string {
 		if m.fileSelectorForm != nil {
 			return m.fileSelectorForm.View()
 		}
+	case ViewSync:
+		if m.syncMenu != nil {
+			return m.syncMenu.View()
+		}
 	case ViewList:
 		return m.renderListView()
 	}
@@ -86,6 +90,15 @@ func (m Model) renderListView() string {
 		components = append(components, errorStyle.Render("❌ "+m.errorMessage))
 	}
 
+	if m.syncRunning || m.syncStatus != "" {
+		color := lipgloss.Color("11")
+		if m.syncStatusError {
+			color = lipgloss.Color("9")
+		}
+		syncStyle := lipgloss.NewStyle().Foreground(color).Bold(true)
+		components = append(components, syncStyle.Render("  [sync] "+m.syncStatus))
+	}
+
 	// Add indicator when hidden hosts are shown
 	if m.showHidden {
 		hiddenBannerStyle := lipgloss.NewStyle().
@@ -114,7 +127,7 @@ func (m Model) renderListView() string {
 	// Add the help text
 	var helpText string
 	if !m.searchMode {
-		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • i: info • h: help • q: quit"
+		helpText = " ↑/↓: navigate • Enter: connect • p: ping all • u: sync • h: help • q: quit"
 	} else {
 		helpText = " Type to filter • Enter: validate • Tab: switch • ESC: quit"
 	}

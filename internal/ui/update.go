@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/Gu1llaum-3/sshm/internal/config"
 	"github.com/Gu1llaum-3/sshm/internal/connectivity"
+	"github.com/Gu1llaum-3/sshm/internal/syncer"
 	"github.com/Gu1llaum-3/sshm/internal/version"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -20,6 +22,11 @@ type (
 	versionCheckMsg *version.UpdateInfo
 	versionErrorMsg error
 	errorMsg        string
+	syncResultMsg   struct {
+		action     string
+		background bool
+		result     syncer.Result
+	}
 )
 
 // startPingAllCmd creates a command to ping all hosts concurrently
@@ -67,6 +74,28 @@ func checkVersionCmd(currentVersion string) tea.Cmd {
 	}
 }
 
+func syncActionCmd(action string, syncConfig config.SyncConfig, configFile string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		manager := syncer.New(syncConfig, configFile)
+		result := manager.Run(ctx, syncer.Action(action))
+		return syncResultMsg{action: action, result: result}
+	}
+}
+
+func startupSyncCmd(syncConfig config.SyncConfig, configFile string) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+
+		manager := syncer.New(syncConfig, configFile)
+		result := manager.Sync(ctx)
+		return syncResultMsg{action: syncActionSync, background: true, result: result}
+	}
+}
+
 // Init initializes the model
 func (m Model) Init() tea.Cmd {
 	var cmds []tea.Cmd
@@ -77,6 +106,10 @@ func (m Model) Init() tea.Cmd {
 	// Check for version updates if we have a current version and updates are enabled
 	if m.currentVersion != "" && m.appConfig.IsUpdateCheckEnabled() {
 		cmds = append(cmds, checkVersionCmd(m.currentVersion))
+	}
+
+	if m.syncRunning && m.appConfig != nil {
+		cmds = append(cmds, startupSyncCmd(m.appConfig.Sync, m.configFile))
 	}
 
 	return tea.Batch(cmds...)
@@ -134,6 +167,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.fileSelectorForm.width = m.width
 			m.fileSelectorForm.height = m.height
 			m.fileSelectorForm.styles = m.styles
+		}
+		if m.syncMenu != nil {
+			m.syncMenu.width = m.width
+			m.syncMenu.height = m.height
+			m.syncMenu.styles = m.styles
 		}
 		return m, nil
 
@@ -385,6 +423,70 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.table.Focus()
 		return m, nil
 
+	case syncMenuCancelMsg:
+		m.viewMode = ViewList
+		m.syncMenu = nil
+		m.table.Focus()
+		return m, nil
+
+	case syncSettingsSaveMsg:
+		if msg.err != nil {
+			if m.syncMenu != nil {
+				m.syncMenu.SetStatus("", msg.err.Error())
+			}
+			return m, nil
+		}
+		m.ensureAppConfig()
+		m.appConfig.Sync = msg.syncConfig
+		if err := config.SaveAppConfig(m.appConfig); err != nil {
+			if m.syncMenu != nil {
+				m.syncMenu.SetStatus("", err.Error())
+			}
+			return m, nil
+		}
+		if m.syncMenu != nil {
+			m.syncMenu.SetSyncConfig(m.appConfig.Sync)
+			m.syncMenu.mode = syncMenuActions
+			m.syncMenu.inputs = nil
+			m.syncMenu.SetStatus("sync settings saved", "")
+		}
+		return m, nil
+
+	case syncMenuActionMsg:
+		return m.handleSyncMenuAction(msg.action)
+
+	case syncResultMsg:
+		m.recordSyncResult(msg.result)
+		if msg.background {
+			m.syncRunning = false
+			m.syncStatusError = !msg.result.OK
+			if msg.result.OK {
+				m.syncStatus = "Auto-sync complete: " + msg.result.Summary
+			} else {
+				m.syncStatus = "Auto-sync failed: " + msg.result.Summary
+			}
+		}
+		if m.syncMenu != nil {
+			errText := ""
+			if !msg.result.OK {
+				errText = msg.result.Summary
+			}
+			m.syncMenu.SetSyncConfig(m.appConfig.Sync)
+			m.syncMenu.SetStatus(formatSyncResult(msg.result), errText)
+		}
+		if msg.result.OK && (msg.action == syncActionSync || msg.action == syncActionPull) {
+			if err := m.reloadHosts(); err != nil {
+				if msg.background {
+					m.syncStatus = "Auto-sync completed, but hosts could not be reloaded: " + err.Error()
+					m.syncStatusError = true
+				}
+				if m.syncMenu != nil {
+					m.syncMenu.SetStatus(msg.result.Summary, err.Error())
+				}
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
 		// Handle view-specific key presses
 		switch m.viewMode {
@@ -435,6 +537,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var newForm *fileSelectorModel
 				newForm, cmd = m.fileSelectorForm.Update(msg)
 				m.fileSelectorForm = newForm
+				return m, cmd
+			}
+		case ViewSync:
+			if m.syncMenu != nil {
+				var newForm *syncMenuModel
+				newForm, cmd = m.syncMenu.Update(msg)
+				m.syncMenu = newForm
 				return m, cmd
 			}
 		case ViewList:
@@ -709,6 +818,15 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.viewMode = ViewHelp
 			return m, nil
 		}
+	case "u":
+		if !m.searchMode && !m.deleteMode {
+			m.syncMenu = NewSyncMenu(m.appConfig, m.styles, m.width, m.height)
+			if m.syncRunning {
+				m.syncMenu.SetRunning("auto-sync")
+			}
+			m.viewMode = ViewSync
+			return m, nil
+		}
 	case "H":
 		if !m.searchMode && !m.deleteMode {
 			// Toggle visibility of hidden hosts
@@ -786,4 +904,137 @@ func (m Model) handleListViewKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
+}
+
+func (m Model) handleSyncMenuAction(action string) (tea.Model, tea.Cmd) {
+	m.ensureAppConfig()
+
+	switch action {
+	case syncActionClose:
+		m.viewMode = ViewList
+		m.syncMenu = nil
+		m.table.Focus()
+		return m, nil
+	case syncActionToggleEnabled:
+		m.appConfig.Sync.Enabled = !m.appConfig.Sync.Enabled
+		return m.saveSyncMenuConfig("sync enabled toggled")
+	case syncActionToggleAuto:
+		m.appConfig.Sync.AutoSyncOnStartup = !m.appConfig.Sync.AutoSyncOnStartup
+		return m.saveSyncMenuConfig("auto-sync setting toggled")
+	case syncActionToggleConfig:
+		m.appConfig.Sync.SetSyncSSHConfig(!m.appConfig.Sync.ShouldSyncSSHConfig())
+		return m.saveSyncMenuConfig("SSH config sync setting toggled")
+	case syncActionToggleIncludes:
+		m.appConfig.Sync.SetSyncIncludedConfigs(!m.appConfig.Sync.ShouldSyncIncludedConfigs())
+		return m.saveSyncMenuConfig("included config sync setting toggled")
+	case syncActionTogglePublicKeys:
+		m.appConfig.Sync.SetSyncPublicKeys(!m.appConfig.Sync.ShouldSyncPublicKeys())
+		return m.saveSyncMenuConfig("public key sync setting toggled")
+	case syncActionSync, syncActionPull, syncActionPush:
+		if m.syncRunning {
+			if m.syncMenu != nil {
+				m.syncMenu.SetStatus("auto-sync is already running", "")
+			}
+			return m, nil
+		}
+		if !m.appConfig.Sync.Enabled {
+			if m.syncMenu != nil {
+				m.syncMenu.SetStatus("", "sync is disabled; enable it and configure a repo URL first")
+			}
+			return m, nil
+		}
+		if m.syncMenu != nil {
+			m.syncMenu.SetRunning(action)
+		}
+		return m, syncActionCmd(action, m.appConfig.Sync, m.configFile)
+	case syncActionCheck:
+		if m.syncRunning {
+			if m.syncMenu != nil {
+				m.syncMenu.SetStatus("auto-sync is already running", "")
+			}
+			return m, nil
+		}
+		if m.syncMenu != nil {
+			m.syncMenu.SetRunning(action)
+		}
+		return m, syncActionCmd(action, m.appConfig.Sync, m.configFile)
+	}
+	return m, nil
+}
+
+func (m Model) saveSyncMenuConfig(status string) (tea.Model, tea.Cmd) {
+	m.ensureAppConfig()
+
+	if err := config.SaveAppConfig(m.appConfig); err != nil {
+		if m.syncMenu != nil {
+			m.syncMenu.SetStatus("", err.Error())
+		}
+		return m, nil
+	}
+	if m.syncMenu != nil {
+		m.syncMenu.SetSyncConfig(m.appConfig.Sync)
+		m.syncMenu.SetStatus(status, "")
+	}
+	return m, nil
+}
+
+func (m *Model) recordSyncResult(result syncer.Result) {
+	m.ensureAppConfig()
+
+	if result.Action != syncer.ActionCheck {
+		m.appConfig.Sync.LastSyncAt = time.Now().Format(time.RFC3339)
+	}
+	m.appConfig.Sync.LastSyncStatus = result.Summary
+	if result.OK {
+		m.appConfig.Sync.LastSyncError = ""
+	} else {
+		m.appConfig.Sync.LastSyncError = result.Summary
+	}
+	_ = config.SaveAppConfig(m.appConfig)
+}
+
+func (m *Model) ensureAppConfig() {
+	if m.appConfig != nil {
+		return
+	}
+	defaultConfig := config.GetDefaultAppConfig()
+	m.appConfig = &defaultConfig
+}
+
+func (m *Model) reloadHosts() error {
+	var hosts []config.SSHHost
+	var err error
+	if m.configFile != "" {
+		hosts, err = config.ParseSSHConfigFile(m.configFile)
+	} else {
+		hosts, err = config.ParseSSHConfig()
+	}
+	if err != nil {
+		return err
+	}
+
+	m.allHosts = hosts
+	m.hosts = m.sortHosts(m.applyVisibilityFilter(hosts))
+	if m.searchInput.Value() != "" {
+		m.filteredHosts = m.filterHosts(m.searchInput.Value())
+	} else {
+		m.filteredHosts = m.hosts
+	}
+	m.updateTableRows()
+	return nil
+}
+
+func formatSyncResult(result syncer.Result) string {
+	lines := []string{result.Summary}
+	for _, check := range result.Checks {
+		line := fmt.Sprintf("%s: %s", check.Name, check.Status)
+		if check.Detail != "" {
+			line += " (" + check.Detail + ")"
+		}
+		lines = append(lines, line)
+	}
+	for _, detail := range result.Details {
+		lines = append(lines, detail)
+	}
+	return strings.Join(lines, "\n")
 }

@@ -49,7 +49,7 @@ func NewAddForm(hostname string, styles Styles, width, height int, configFile st
 		}
 	}
 
-	inputs := make([]textinput.Model, 11)
+	inputs := make([]textinput.Model, 12)
 
 	// Name input
 	inputs[nameInput] = textinput.New()
@@ -84,6 +84,12 @@ func NewAddForm(hostname string, styles Styles, width, height int, configFile st
 	inputs[identityInput].Placeholder = defaultIdentity
 	inputs[identityInput].CharLimit = 200
 	inputs[identityInput].Width = 50
+
+	// Public key input
+	inputs[publicKeyInput] = textinput.New()
+	inputs[publicKeyInput].Placeholder = "ssh-ed25519 AAAAC3Nza... user@host"
+	inputs[publicKeyInput].CharLimit = 8192
+	inputs[publicKeyInput].Width = 70
 
 	// ProxyJump input
 	inputs[proxyJumpInput] = textinput.New()
@@ -143,6 +149,7 @@ const (
 	userInput
 	portInput
 	identityInput
+	publicKeyInput
 	proxyJumpInput
 	proxyCommandInput
 	optionsInput
@@ -226,7 +233,7 @@ func (m *addFormModel) getFirstInputForTab(tab int) int {
 	case tabGeneral:
 		return nameInput
 	case tabAdvanced:
-		return optionsInput
+		return publicKeyInput
 	default:
 		return nameInput
 	}
@@ -236,11 +243,11 @@ func (m *addFormModel) getFirstInputForTab(tab int) int {
 func (m *addFormModel) getInputsForCurrentTab() []int {
 	switch m.currentTab {
 	case tabGeneral:
-		return []int{nameInput, hostnameInput, userInput, portInput, identityInput, proxyJumpInput, proxyCommandInput, tagsInput}
+		return []int{nameInput, hostnameInput, userInput, portInput, identityInput, tagsInput}
 	case tabAdvanced:
-		return []int{optionsInput, remoteCommandInput, requestTTYInput}
+		return []int{publicKeyInput, proxyJumpInput, proxyCommandInput, optionsInput, remoteCommandInput, requestTTYInput}
 	default:
-		return []int{nameInput, hostnameInput, userInput, portInput, identityInput, proxyJumpInput, proxyCommandInput, tagsInput}
+		return []int{nameInput, hostnameInput, userInput, portInput, identityInput, tagsInput}
 	}
 }
 
@@ -362,9 +369,9 @@ func (m *addFormModel) getMinimumHeight() int {
 	// Fields in current tab
 	var fieldsCount int
 	if m.currentTab == tabGeneral {
-		fieldsCount = 7 // 7 fields in general tab
+		fieldsCount = 6 // 6 fields in general tab
 	} else {
-		fieldsCount = 3 // 3 fields in advanced tab
+		fieldsCount = 6 // 6 fields in advanced tab
 	}
 	// Each field: label (1) + input (1) + spacing (2) = 4 lines per field, but let's be more conservative
 	fieldsLines := fieldsCount * 3 // Reduced from 4 to 3
@@ -425,8 +432,6 @@ func (m *addFormModel) renderGeneralTab() string {
 		{userInput, "User"},
 		{portInput, "Port"},
 		{identityInput, "Identity File"},
-		{proxyJumpInput, "ProxyJump"},
-		{proxyCommandInput, "ProxyCommand"},
 		{tagsInput, "Tags (comma-separated)"},
 	}
 
@@ -457,6 +462,9 @@ func (m *addFormModel) renderAdvancedTab() string {
 		index int
 		label string
 	}{
+		{publicKeyInput, "Public Key Content"},
+		{proxyJumpInput, "ProxyJump"},
+		{proxyCommandInput, "ProxyCommand"},
 		{optionsInput, "SSH Options"},
 		{remoteCommandInput, "Remote Command"},
 		{requestTTYInput, "Request TTY"},
@@ -470,7 +478,12 @@ func (m *addFormModel) renderAdvancedTab() string {
 		b.WriteString(fieldStyle.Render(field.label))
 		b.WriteString("\n")
 		b.WriteString(m.inputs[field.index].View())
-		b.WriteString("\n\n")
+		b.WriteString("\n")
+		if field.index == publicKeyInput && m.focused == publicKeyInput {
+			b.WriteString(m.styles.FormHelp.Render("  saved to ~/.ssh/ssh-key as <user>_<hostname>.pub; not used as IdentityFile"))
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
 	}
 
 	return b.String()
@@ -519,6 +532,7 @@ func (m *addFormModel) submitForm() tea.Cmd {
 		user := strings.TrimSpace(m.inputs[userInput].Value())
 		port := strings.TrimSpace(m.inputs[portInput].Value())
 		identity := strings.TrimSpace(m.inputs[identityInput].Value())
+		publicKey := strings.TrimSpace(m.inputs[publicKeyInput].Value())
 		proxyJump := strings.TrimSpace(m.inputs[proxyJumpInput].Value())
 		proxyCommand := strings.TrimSpace(m.inputs[proxyCommandInput].Value())
 		options := strings.TrimSpace(m.inputs[optionsInput].Value())
@@ -537,6 +551,11 @@ func (m *addFormModel) submitForm() tea.Cmd {
 		// Validate all fields
 		if err := validation.ValidateHost(name, hostname, port, identity); err != nil {
 			return addFormSubmitMsg{err: err}
+		}
+		if publicKey != "" {
+			if _, err := config.SavePublicKeyForHost(user, hostname, publicKey); err != nil {
+				return addFormSubmitMsg{err: err}
+			}
 		}
 
 		tagsStr := strings.TrimSpace(m.inputs[tagsInput].Value())

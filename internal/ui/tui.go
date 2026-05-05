@@ -63,6 +63,11 @@ func NewModel(hosts []config.SSHHost, configFile string, searchMode bool, curren
 		searchMode:     searchMode,
 	}
 
+	if appConfig.Sync.ShouldAutoSync(time.Now()) {
+		m.syncRunning = true
+		m.syncStatus = "Auto-sync is running in the background..."
+	}
+
 	// Apply visibility filter (showHidden is false by default)
 	visibleHosts := m.applyVisibilityFilter(hosts)
 	m.hosts = visibleHosts

@@ -7,9 +7,9 @@
 # 🚀 SSHM - SSH Manager
 
 [![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?style=for-the-badge&logo=go)](https://golang.org/)
-[![Release](https://img.shields.io/github/v/release/Gu1llaum-3/sshm?style=for-the-badge)](https://github.com/Gu1llaum-3/sshm/releases)
-[![License](https://img.shields.io/github/license/Gu1llaum-3/sshm?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/Gu1llaum-3/sshm/releases)
+[![Release](https://img.shields.io/github/v/release/jus1-c/sshm?style=for-the-badge)](https://github.com/jus1-c/sshm/releases)
+[![License](https://img.shields.io/github/license/jus1-c/sshm?style=for-the-badge)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey?style=for-the-badge)](https://github.com/jus1-c/sshm/releases)
 
 > **A modern, interactive SSH Manager for your terminal** 🔥
 
@@ -35,6 +35,7 @@ SSHM is a beautiful command-line tool that transforms how you manage and connect
 - **📝 Real-time Status** - Live SSH connectivity indicators with asynchronous ping checks and color-coded status
 - **🔔 Smart Updates** - Automatic version checking with update notifications
 - **📈 Connection History** - Track your SSH connections with last login timestamps
+- **🔁 Private Repo Sync** - Sync SSH config and saved public keys with a private git repository
 
 ### 🛠️ **Technical Features**
 - **🔒 Secure** - Works directly with your existing `~/.ssh/config` file
@@ -53,19 +54,26 @@ SSHM is a beautiful command-line tool that transforms how you manage and connect
 
 ### Installation
 
-**Homebrew (Recommended for macOS):**
-```bash
-brew install Gu1llaum-3/sshm/sshm
-```
-
 **Unix/Linux/macOS (One-line install):**
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/unix.sh | bash
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | bash
+```
+
+Install a specific release or custom directory:
+```bash
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | SSHM_VERSION=v1.8.0 bash
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | INSTALL_DIR="$HOME/.local/bin" bash
 ```
 
 **Windows (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/windows.ps1 | iex
+irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1 | iex
+```
+
+Install a specific release or custom directory:
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1) } -Version v1.8.0"
+iex "& { $(irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1) } -InstallDir 'C:\tools'"
 ```
 
 **Alternative methods:**
@@ -73,18 +81,18 @@ irm https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/windows.ps1 |
 *Linux/macOS:*
 ```bash
 # Download specific release
-wget https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-linux-amd64.tar.gz
+wget https://github.com/jus1-c/sshm/releases/latest/download/sshm_Linux_x86_64.tar.gz
 
 # Extract and install
-tar -xzf sshm-linux-amd64.tar.gz
-sudo mv sshm-linux-amd64 /usr/local/bin/sshm
+tar -xzf sshm_Linux_x86_64.tar.gz
+sudo mv sshm /usr/local/bin/sshm
 ```
 
 *Windows:*
 ```powershell
 # Download and extract
-Invoke-WebRequest -Uri "https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-windows-amd64.zip" -OutFile "sshm-windows-amd64.zip"
-Expand-Archive sshm-windows-amd64.zip -DestinationPath C:\tools\
+Invoke-WebRequest -Uri "https://github.com/jus1-c/sshm/releases/latest/download/sshm_Windows_x86_64.zip" -OutFile "sshm_Windows_x86_64.zip"
+Expand-Archive sshm_Windows_x86_64.zip -DestinationPath C:\tools\
 # Add C:\tools to your PATH environment variable
 ```
 
@@ -106,6 +114,7 @@ sshm
 - `d` - Delete selected host
 - `m` - Move host to another config file (requires SSH Include directives)
 - `f` - Port forwarding setup
+- `u` - Open Sync Center
 - `H` - Toggle hidden hosts visibility
 - `q` - Quit
 - `/` - Search/filter hosts
@@ -129,6 +138,7 @@ The interactive forms will guide you through configuration:
 - **Username** - SSH user
 - **Port** - SSH port (default: 22)
 - **Identity File** - Private key path
+- **Public Key Content** - Optional pasted public key saved under `~/.ssh/ssh-key/<user>_<hostname>.pub` for syncing; it is not used as `IdentityFile`. Editing a host overwrites that host's saved `.pub` file when a new public key is pasted.
 - **ProxyJump** - Jump server for connection tunneling
 - **ProxyCommand** - Jump command for connection tunneling
 - **SSH Options** - Additional SSH options in `-o` format (e.g., `-o Compression=yes -o ServerAliveInterval=60`)
@@ -696,6 +706,18 @@ SSHM supports a configuration file to customize its behavior, including key bind
   "key_bindings": {
     "quit_keys": ["q", "ctrl+c"],
     "disable_esc_quit": true
+  },
+  "sync": {
+    "enabled": true,
+    "repo_url": "git@github.com:user/sshm-sync.git",
+    "branch": "main",
+    "local_path": "~/.config/sshm/sync-repo",
+    "auto_sync_on_startup": true,
+    "auto_sync_ttl": "24h",
+    "sync_ssh_config": true,
+    "sync_included_configs": true,
+    "sync_public_keys": true,
+    "public_key_dir": "~/.ssh/ssh-key"
   }
 }
 ```
@@ -704,9 +726,35 @@ SSHM supports a configuration file to customize its behavior, including key bind
 - **check_for_updates**: Boolean to enable or disable the automatic update check at startup. Default: `true`. Set to `false` on air-gapped or offline machines to avoid connection delays.
 - **quit_keys**: Array of keys that will quit the application. Default: `["q", "ctrl+c"]`
 - **disable_esc_quit**: Boolean flag to disable ESC key from quitting the application. Default: `false`
+- **sync**: Private git repository sync settings. Sync is disabled by default until `enabled` and `repo_url` are configured. Startup auto-sync runs in the TUI background and is skipped until `auto_sync_ttl` has elapsed since the last sync.
 
 **For Vim Users:**
 If you frequently press ESC accidentally causing the application to quit, set `disable_esc_quit` to `true`. This will disable ESC as a quit key while preserving all other functionality.
+
+### Private Repo Sync
+
+Press `u` in the TUI to open Sync Center. From there you can run sync, pull, push, check repository availability, and edit repo settings.
+
+CLI examples:
+
+```bash
+# Configure and enable sync
+sshm sync --enable --repo git@github.com:user/sshm-sync.git --branch main
+
+# Enable startup auto-sync with the default 24h TTL
+sshm sync --auto-startup --auto-sync-ttl 24h
+
+# Check whether the private repo is reachable
+sshm sync --check
+
+# Pull remote config/key files into local SSH files
+sshm sync --pull
+
+# Push local SSH files to the private repo
+sshm sync --push
+```
+
+By default SSHM syncs `~/.ssh/config`, included config files under `~/.ssh`, and public key files ending in `.pub` from `~/.ssh/ssh-key`. It does not sync private keys by default. Direct `sshm <host>` connections do not run startup auto-sync.
 
 **For Air-gapped Machines:**
 If SSHM is slow to start due to DNS timeouts when reaching GitHub, set `check_for_updates` to `false`. You can also use the `--no-update-check` CLI flag for a one-time override without editing the config file.
@@ -725,7 +773,7 @@ If no configuration file exists, SSHM will automatically create one with default
 
 ```bash
 # Clone the repository
-git clone https://github.com/Gu1llaum-3/sshm.git
+git clone https://github.com/jus1-c/sshm.git
 cd sshm
 
 # Build the binary
@@ -802,12 +850,12 @@ Automated releases are built for multiple platforms:
 
 | Platform | Architecture | Download |
 |----------|-------------|----------|
-| Linux | AMD64 | [sshm-linux-amd64.tar.gz](https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-linux-amd64.tar.gz) |
-| Linux | ARM64 | [sshm-linux-arm64.tar.gz](https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-linux-arm64.tar.gz) |
-| macOS | Intel | [sshm-darwin-amd64.tar.gz](https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-darwin-amd64.tar.gz) |
-| macOS | Apple Silicon | [sshm-darwin-arm64.tar.gz](https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-darwin-arm64.tar.gz) |
-| Windows | AMD64 | [sshm-windows-amd64.zip](https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-windows-amd64.zip) |
-| Windows | ARM64 | [sshm-windows-arm64.zip](https://github.com/Gu1llaum-3/sshm/releases/latest/download/sshm-windows-arm64.zip) |
+| Linux | AMD64 | [sshm_Linux_x86_64.tar.gz](https://github.com/jus1-c/sshm/releases/latest/download/sshm_Linux_x86_64.tar.gz) |
+| Linux | ARM64 | [sshm_Linux_arm64.tar.gz](https://github.com/jus1-c/sshm/releases/latest/download/sshm_Linux_arm64.tar.gz) |
+| macOS | Intel | [sshm_Darwin_x86_64.tar.gz](https://github.com/jus1-c/sshm/releases/latest/download/sshm_Darwin_x86_64.tar.gz) |
+| macOS | Apple Silicon | [sshm_Darwin_arm64.tar.gz](https://github.com/jus1-c/sshm/releases/latest/download/sshm_Darwin_arm64.tar.gz) |
+| Windows | AMD64 | [sshm_Windows_x86_64.zip](https://github.com/jus1-c/sshm/releases/latest/download/sshm_Windows_x86_64.zip) |
+| Windows | 386 | [sshm_Windows_i386.zip](https://github.com/jus1-c/sshm/releases/latest/download/sshm_Windows_i386.zip) |
 
 ## 🤝 Contributing
 

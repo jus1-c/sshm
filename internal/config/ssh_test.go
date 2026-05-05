@@ -1,12 +1,29 @@
 package config
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+
+	gossh "golang.org/x/crypto/ssh"
 )
+
+func testAuthorizedKey(t *testing.T) string {
+	t.Helper()
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate public key: %v", err)
+	}
+	sshKey, err := gossh.NewPublicKey(publicKey)
+	if err != nil {
+		t.Fatalf("failed to convert public key: %v", err)
+	}
+	return strings.TrimSpace(string(gossh.MarshalAuthorizedKey(sshKey)))
+}
 
 func TestGetDefaultSSHConfigPath(t *testing.T) {
 	tests := []struct {
@@ -70,6 +87,56 @@ func TestEnsureSSHDirectory(t *testing.T) {
 	err := ensureSSHDirectory()
 	if err != nil {
 		t.Fatalf("ensureSSHDirectory() error = %v", err)
+	}
+}
+
+func TestSaveAndUpdatePublicKeyForHost(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	firstKey := testAuthorizedKey(t)
+	secondKey := testAuthorizedKey(t)
+
+	path, err := SavePublicKeyForHost("test-user", "example.com", firstKey)
+	if err != nil {
+		t.Fatalf("SavePublicKeyForHost() error = %v", err)
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read saved key: %v", err)
+	}
+	if strings.TrimSpace(string(content)) != firstKey {
+		t.Fatalf("saved key content mismatch")
+	}
+	if filepath.Base(path) != "test-user_example.com.pub" {
+		t.Fatalf("unexpected public key filename: %s", filepath.Base(path))
+	}
+
+	if _, err := SavePublicKeyForHost("test-user", "example.com", firstKey); err != nil {
+		t.Fatalf("SavePublicKeyForHost() should allow identical content: %v", err)
+	}
+	if _, err := SavePublicKeyForHost("test-user", "example.com", secondKey); err == nil {
+		t.Fatal("SavePublicKeyForHost() should reject different existing content")
+	}
+
+	updatedPath, err := UpdatePublicKeyForHost("test-user", "example.com", secondKey)
+	if err != nil {
+		t.Fatalf("UpdatePublicKeyForHost() error = %v", err)
+	}
+	if updatedPath != path {
+		t.Fatalf("UpdatePublicKeyForHost() path = %s, expected %s", updatedPath, path)
+	}
+
+	updatedContent, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read updated key: %v", err)
+	}
+	if strings.TrimSpace(string(updatedContent)) != secondKey {
+		t.Fatal("updated key content mismatch")
+	}
+
+	if _, err := UpdatePublicKeyForHost("test-user", "example.com", "not a key"); err == nil {
+		t.Fatal("UpdatePublicKeyForHost() should reject invalid public keys")
 	}
 }
 

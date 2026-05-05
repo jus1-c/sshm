@@ -78,7 +78,7 @@ changelog:
 brews:
 - name: sshm
   repository:
-    owner: Gu1llaum-3
+    owner: jus1-c
     name: homebrew-sshm
     # Token with repo permissions for your homebrew-sshm repo
     token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
@@ -86,7 +86,7 @@ brews:
     name: goreleaserbot
     email: bot@goreleaser.com
   commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
-  homepage: "https://github.com/Gu1llaum-3/sshm"
+  homepage: "https://github.com/jus1-c/sshm"
   description: "A modern SSH connection manager for your terminal"
   license: MIT
   skip_upload: auto
@@ -97,7 +97,7 @@ brews:
 # Release configuration
 release:
   github:
-    owner: Gu1llaum-3
+    owner: jus1-c
     name: sshm
   prerelease: auto
   draft: false
@@ -114,19 +114,19 @@ release:
 
     ### Homebrew (macOS/Linux)
     ```bash
-    brew tap Gu1llaum-3/sshm
+    brew tap jus1-c/sshm
     brew install sshm
     ```
 
     ### Installation Script (Recommended)
     **Unix/Linux/macOS:**
     ```bash
-    curl -sSL https://github.com/Gu1llaum-3/sshm/raw/main/install/unix.sh | bash
+    curl -sSL https://github.com/jus1-c/sshm/raw/main/install/unix.sh | bash
     ```
 
     **Windows (PowerShell):**
     ```powershell
-    iwr -useb https://github.com/Gu1llaum-3/sshm/raw/main/install/windows.ps1 | iex
+    iwr -useb https://github.com/jus1-c/sshm/raw/main/install/windows.ps1 | iex
     ```
 
     ### Manual Installation
@@ -134,13 +134,13 @@ release:
 
     ## Full Changelog
 
-    See all changes at https://github.com/Gu1llaum-3/sshm/compare/{{.PreviousTag}}...{{.Tag}}
+    See all changes at https://github.com/jus1-c/sshm/compare/{{.PreviousTag}}...{{.Tag}}
 
     ---
 
-    📖 **Documentation:** See the updated [README](https://github.com/Gu1llaum-3/sshm/blob/main/README.md)
+    📖 **Documentation:** See the updated [README](https://github.com/jus1-c/sshm/blob/main/README.md)
 
-    🐛 **Issues:** Found a bug? Open an [issue](https://github.com/Gu1llaum-3/sshm/issues)
+    🐛 **Issues:** Found a bug? Open an [issue](https://github.com/jus1-c/sshm/issues)
 
     ---
 

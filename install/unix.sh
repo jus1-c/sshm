@@ -1,6 +1,6 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 EXECUTABLE_NAME=sshm
 EXECUTABLE_PATH="$INSTALL_DIR/$EXECUTABLE_NAME"
 USE_SUDO="false"
@@ -8,6 +8,8 @@ OS=""
 ARCH=""
 FORCE_INSTALL="${FORCE_INSTALL:-false}"
 SSHM_VERSION="${SSHM_VERSION:-latest}"
+SSHM_REPO="${SSHM_REPO:-jus1-c/sshm}"
+TMP_DIR=""
 
 RED='\033[0;31m'
 PURPLE='\033[0;35m'
@@ -25,6 +27,7 @@ usage() {
     printf "  Custom install directory:    ${GREEN}INSTALL_DIR=/opt/bin bash install.sh${NC}\n\n"
     printf "Environment variables:\n"
     printf "  SSHM_VERSION    - Version to install (default: latest)\n"
+    printf "  SSHM_REPO       - GitHub repo to install from (default: jus1-c/sshm)\n"
     printf "  FORCE_INSTALL   - Skip confirmation prompts (default: false)\n"
     printf "  INSTALL_DIR     - Installation directory (default: /usr/local/bin)\n\n"
 }
@@ -32,7 +35,7 @@ usage() {
 setSystem() {
     ARCH=$(uname -m)
     case $ARCH in
-        i386|i686) ARCH="amd64" ;;
+        i386|i686) ARCH="386" ;;
         x86_64) ARCH="amd64";;
         armv6*) ARCH="armv6" ;;
         armv7*) ARCH="armv7" ;;
@@ -40,30 +43,37 @@ setSystem() {
         arm64) ARCH="arm64" ;;
     esac
 
-    OS=$(echo `uname`|tr '[:upper:]' '[:lower:]')
-    
-    # Determine if we need sudo
-    if [ "$OS" = "linux" ]; then
-        USE_SUDO="true"
+    OS=$(uname | tr '[:upper:]' '[:lower:]')
+
+    if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
+        printf "${RED}Unsupported OS: $OS${NC}\n"
+        exit 1
     fi
-    if [ "$OS" = "darwin" ]; then
+
+    if [ "$(id -u)" -ne 0 ] && { [ ! -d "$INSTALL_DIR" ] || [ ! -w "$INSTALL_DIR" ]; }; then
         USE_SUDO="true"
     fi
 }
 
 runAsRoot() {
-    local CMD="$*"
     if [ "$USE_SUDO" = "true" ]; then
         printf "${PURPLE}We need sudo access to install SSHM to $INSTALL_DIR ${NC}\n"
-        CMD="sudo $CMD"
+        sudo "$@"
+    else
+        "$@"
     fi
-    $CMD
+}
+
+ensureInstallDir() {
+    if [ ! -d "$INSTALL_DIR" ]; then
+        runAsRoot mkdir -p "$INSTALL_DIR"
+    fi
 }
 
 getLatestVersion() {
     if [ "$SSHM_VERSION" = "latest" ]; then
         printf "${YELLOW}Fetching latest stable version...${NC}\n"
-        LATEST_VERSION=$(curl -s https://api.github.com/repos/Gu1llaum-3/sshm/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        LATEST_VERSION=$(curl -fsSL "https://api.github.com/repos/$SSHM_REPO/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [ -z "$LATEST_VERSION" ]; then
             printf "${RED}Failed to fetch latest version${NC}\n"
             exit 1
@@ -71,10 +81,10 @@ getLatestVersion() {
     else
         printf "${YELLOW}Using specified version: $SSHM_VERSION${NC}\n"
         # Validate that the specified version exists
-        RELEASE_CHECK=$(curl -s "https://api.github.com/repos/Gu1llaum-3/sshm/releases/tags/$SSHM_VERSION" | grep '"tag_name":')
+        RELEASE_CHECK=$(curl -fsSL "https://api.github.com/repos/$SSHM_REPO/releases/tags/$SSHM_VERSION" | grep '"tag_name":')
         if [ -z "$RELEASE_CHECK" ]; then
             printf "${RED}Version $SSHM_VERSION not found. Available versions:${NC}\n"
-            curl -s https://api.github.com/repos/Gu1llaum-3/sshm/releases | grep '"tag_name":' | head -10 | sed -E 's/.*"([^"]+)".*/  - \1/'
+            curl -fsSL "https://api.github.com/repos/$SSHM_REPO/releases" | grep '"tag_name":' | head -10 | sed -E 's/.*"([^"]+)".*/  - \1/'
             exit 1
         fi
         LATEST_VERSION="$SSHM_VERSION"
@@ -83,6 +93,8 @@ getLatestVersion() {
 }
 
 downloadBinary() {
+    TMP_DIR=$(mktemp -d)
+
     # Map OS names to match GoReleaser format
     local GORELEASER_OS="$OS"
     case $OS in
@@ -103,37 +115,38 @@ downloadBinary() {
     
     # GoReleaser format: sshm_Linux_armv7.tar.gz
     GITHUB_FILE="sshm_${GORELEASER_OS}_${GORELEASER_ARCH}.tar.gz"
-    GITHUB_URL="https://github.com/Gu1llaum-3/sshm/releases/download/$LATEST_VERSION/$GITHUB_FILE"
-    
+    GITHUB_URL="https://github.com/$SSHM_REPO/releases/download/$LATEST_VERSION/$GITHUB_FILE"
+
     printf "${YELLOW}Downloading $GITHUB_FILE...${NC}\n"
-    curl -L "$GITHUB_URL" --progress-bar --output "sshm-tmp.tar.gz"
-    
+    curl -fL "$GITHUB_URL" --progress-bar --output "$TMP_DIR/sshm.tar.gz"
+
     if [ $? -ne 0 ]; then
         printf "${RED}Failed to download binary${NC}\n"
         exit 1
     fi
-    
+
     # Extract the binary
-    tar -xzf "sshm-tmp.tar.gz"
+    tar -xzf "$TMP_DIR/sshm.tar.gz" -C "$TMP_DIR"
     if [ $? -ne 0 ]; then
         printf "${RED}Failed to extract binary${NC}\n"
         exit 1
     fi
-    
+
     # GoReleaser extracts the binary as just "sshm", not with the platform suffix
-    EXTRACTED_BINARY="./sshm"
+    EXTRACTED_BINARY="$TMP_DIR/sshm"
     if [ ! -f "$EXTRACTED_BINARY" ]; then
         printf "${RED}Could not find extracted binary: $EXTRACTED_BINARY${NC}\n"
         exit 1
     fi
-    
-    mv "$EXTRACTED_BINARY" "sshm-tmp"
-    rm -f "sshm-tmp.tar.gz"
+
+    mv "$EXTRACTED_BINARY" "$TMP_DIR/sshm-tmp"
 }
 
 install() {
     printf "${YELLOW}Installing SSHM...${NC}\n"
-    
+
+    ensureInstallDir
+
     # Backup old version if it exists to prevent interference during installation
     OLD_BACKUP=""
     if [ -f "$EXECUTABLE_PATH" ]; then
@@ -141,7 +154,7 @@ install() {
         runAsRoot mv "$EXECUTABLE_PATH" "$OLD_BACKUP"
     fi
     
-    chmod +x "sshm-tmp"
+    chmod +x "$TMP_DIR/sshm-tmp"
     if [ $? -ne 0 ]; then
         printf "${RED}Failed to set permissions${NC}\n"
         # Restore backup if installation fails
@@ -151,7 +164,7 @@ install() {
         exit 1
     fi
 
-    runAsRoot mv "sshm-tmp" "$EXECUTABLE_PATH"
+    runAsRoot mv "$TMP_DIR/sshm-tmp" "$EXECUTABLE_PATH"
     if [ $? -ne 0 ]; then
         printf "${RED}Failed to install binary${NC}\n"
         # Restore backup if installation fails
@@ -168,7 +181,9 @@ install() {
 }
 
 cleanup() {
-    rm -f "sshm-tmp" "sshm-tmp.tar.gz" "sshm-${OS}-${ARCH}"
+    if [ -n "$TMP_DIR" ] && [ -d "$TMP_DIR" ]; then
+        rm -rf "$TMP_DIR"
+    fi
 }
 
 checkExisting() {

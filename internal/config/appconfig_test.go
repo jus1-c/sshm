@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestDefaultKeyBindings(t *testing.T) {
@@ -114,6 +115,19 @@ func TestAppConfigBasics(t *testing.T) {
 	if !defaultConfig.IsUpdateCheckEnabled() {
 		t.Error("IsUpdateCheckEnabled should return true when CheckForUpdates is nil")
 	}
+
+	if defaultConfig.Sync.Branch != "main" {
+		t.Errorf("Expected default sync branch main, got %s", defaultConfig.Sync.Branch)
+	}
+	if defaultConfig.Sync.AutoSyncTTL != DefaultAutoSyncTTL {
+		t.Errorf("Expected default auto sync TTL %s, got %s", DefaultAutoSyncTTL, defaultConfig.Sync.AutoSyncTTL)
+	}
+	if defaultConfig.Sync.Enabled {
+		t.Error("Sync should be disabled by default")
+	}
+	if !defaultConfig.Sync.ShouldSyncSSHConfig() || !defaultConfig.Sync.ShouldSyncIncludedConfigs() || !defaultConfig.Sync.ShouldSyncPublicKeys() {
+		t.Error("Default sync config should include SSH config, included configs, and public keys")
+	}
 }
 
 func boolPtr(b bool) *bool {
@@ -178,6 +192,84 @@ func TestMergeWithDefaults(t *testing.T) {
 	expectedQuitKeys := []string{"q", "ctrl+c"}
 	if len(mergedConfig.KeyBindings.QuitKeys) != len(expectedQuitKeys) {
 		t.Errorf("Expected %d quit keys, got %d", len(expectedQuitKeys), len(mergedConfig.KeyBindings.QuitKeys))
+	}
+
+	if mergedConfig.Sync.Branch != "main" {
+		t.Errorf("Expected sync branch default main, got %s", mergedConfig.Sync.Branch)
+	}
+	if mergedConfig.Sync.LocalPath == "" {
+		t.Error("Expected sync local path default to be set")
+	}
+	if mergedConfig.Sync.AutoSyncTTL != DefaultAutoSyncTTL {
+		t.Errorf("Expected sync TTL default %s, got %s", DefaultAutoSyncTTL, mergedConfig.Sync.AutoSyncTTL)
+	}
+
+	invalidTTLConfig := mergeWithDefaults(AppConfig{Sync: SyncConfig{AutoSyncTTL: "invalid"}})
+	if invalidTTLConfig.Sync.AutoSyncTTL != DefaultAutoSyncTTL {
+		t.Errorf("Expected invalid sync TTL to default to %s, got %s", DefaultAutoSyncTTL, invalidTTLConfig.Sync.AutoSyncTTL)
+	}
+
+	if !mergedConfig.Sync.ShouldSyncPublicKeys() {
+		t.Error("Expected sync public keys default to be enabled")
+	}
+}
+
+func TestValidateAutoSyncTTL(t *testing.T) {
+	if got, err := ValidateAutoSyncTTL(" 12h "); err != nil || got != "12h" {
+		t.Fatalf("ValidateAutoSyncTTL() = %q, %v; expected 12h, nil", got, err)
+	}
+	if got, err := ValidateAutoSyncTTL(""); err != nil || got != DefaultAutoSyncTTL {
+		t.Fatalf("ValidateAutoSyncTTL(empty) = %q, %v; expected default", got, err)
+	}
+	if _, err := ValidateAutoSyncTTL("0s"); err == nil {
+		t.Fatal("ValidateAutoSyncTTL(0s) expected error")
+	}
+	if _, err := ValidateAutoSyncTTL("not-a-duration"); err == nil {
+		t.Fatal("ValidateAutoSyncTTL(not-a-duration) expected error")
+	}
+}
+
+func TestSyncConfigShouldAutoSync(t *testing.T) {
+	now := time.Date(2026, 5, 5, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		config   SyncConfig
+		expected bool
+	}{
+		{
+			name:     "disabled sync",
+			config:   SyncConfig{Enabled: false, AutoSyncOnStartup: true, AutoSyncTTL: "24h"},
+			expected: false,
+		},
+		{
+			name:     "auto startup disabled",
+			config:   SyncConfig{Enabled: true, AutoSyncOnStartup: false, AutoSyncTTL: "24h"},
+			expected: false,
+		},
+		{
+			name:     "never synced",
+			config:   SyncConfig{Enabled: true, AutoSyncOnStartup: true, AutoSyncTTL: "24h"},
+			expected: true,
+		},
+		{
+			name:     "within TTL",
+			config:   SyncConfig{Enabled: true, AutoSyncOnStartup: true, AutoSyncTTL: "24h", LastSyncAt: now.Add(-23 * time.Hour).Format(time.RFC3339)},
+			expected: false,
+		},
+		{
+			name:     "expired TTL",
+			config:   SyncConfig{Enabled: true, AutoSyncOnStartup: true, AutoSyncTTL: "24h", LastSyncAt: now.Add(-25 * time.Hour).Format(time.RFC3339)},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.config.ShouldAutoSync(now); got != tt.expected {
+				t.Errorf("ShouldAutoSync() = %v, expected %v", got, tt.expected)
+			}
+		})
 	}
 }
 

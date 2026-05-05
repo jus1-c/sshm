@@ -2,88 +2,116 @@
 
 This directory contains installation scripts for SSHM.
 
-## Unix/Linux/macOS Installation
+By default, the scripts install releases from `jus1-c/sshm`.
 
-### Quick Install (Recommended)
+## Unix/Linux/macOS
+
+### Quick Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/unix.sh | bash
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | bash
 ```
 
-**Note:** When using the pipe method, the installer will automatically proceed with installation if SSHM is already installed.
+When using the pipe method, the installer automatically proceeds if SSHM is already installed. Use `FORCE_INSTALL=false` only when running the script from a terminal and you want the overwrite prompt.
 
-## Windows Installation
+### Options
 
-### Quick Install (Recommended)
+Install a specific version:
 
-```powershell
-irm https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/windows.ps1 | iex
-```
-
-### Install Options
-
-**Force install without prompts:**
-```powershell
-iex "& { $(irm https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/windows.ps1) } -Force"
-```
-
-**Custom installation directory:**
-```powershell
-iex "& { $(irm https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/windows.ps1) } -InstallDir 'C:\tools'"
-```
-
-## Unix/Linux/macOS Advanced Options
-
-**Force install without prompts:**
 ```bash
-FORCE_INSTALL=true bash -c "$(curl -sSL https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/unix.sh)"
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | SSHM_VERSION=v1.8.0 bash
 ```
 
-**Disable auto-install when using pipe:**
+Force install without prompts:
+
 ```bash
-FORCE_INSTALL=false bash -c "$(curl -sSL https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/unix.sh)"
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | FORCE_INSTALL=true bash
 ```
 
-### Manual Install
+Install to a custom directory:
 
-1. Download the script:
 ```bash
-curl -O https://raw.githubusercontent.com/Gu1llaum-3/sshm/main/install/unix.sh
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | INSTALL_DIR="$HOME/.local/bin" bash
 ```
 
-2. Make it executable:
+Install from a different GitHub repo:
+
 ```bash
+curl -sSL https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh | SSHM_REPO=owner/repo bash
+```
+
+### Manual Script Run
+
+```bash
+curl -O https://raw.githubusercontent.com/jus1-c/sshm/main/install/unix.sh
 chmod +x unix.sh
-```
-
-3. Run the installer:
-```bash
 ./unix.sh
 ```
 
-## What the installer does
+## Windows
 
-1. **Detects your system** - Automatically detects your OS (Linux/macOS) and architecture (AMD64/ARM64)
-2. **Fetches latest version** - Gets the latest release from GitHub
-3. **Downloads binary** - Downloads the appropriate binary for your system
-4. **Installs to /usr/local/bin** - Installs the binary with proper permissions
-5. **Verifies installation** - Checks that the installation was successful
+### Quick Install
+
+```powershell
+irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1 | iex
+```
+
+### Options
+
+Install a specific version:
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1) } -Version v1.8.0"
+```
+
+Force install without prompts:
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1) } -Force"
+```
+
+Install to a custom directory:
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/jus1-c/sshm/main/install/windows.ps1) } -InstallDir 'C:\tools'"
+```
+
+Install a local binary:
+
+```powershell
+.\install\windows.ps1 -LocalBinary ".\sshm.exe"
+```
+
+## What The Installer Does
+
+1. Detects your OS and architecture.
+2. Fetches the requested release from GitHub.
+3. Downloads the matching GoReleaser archive.
+4. Extracts the `sshm` binary into a temporary directory.
+5. Installs it into your target install directory.
+6. Verifies the installed binary.
 
 ## Supported Platforms
 
-- **Linux**: AMD64, ARM64
-- **macOS**: AMD64 (Intel), ARM64 (Apple Silicon)
+- Linux: x86_64, arm64, armv6, armv7, i386
+- macOS: x86_64, arm64
+- Windows: x86_64, i386
 
 ## Requirements
 
-- `curl` - for downloading
-- `tar` - for extracting archives
-- `sudo` access - for installing to `/usr/local/bin`
+- Unix/Linux/macOS: `curl`, `tar`, and `sudo` when installing to a protected directory.
+- Windows: PowerShell 5+ with `Invoke-WebRequest` and `Expand-Archive`.
 
 ## Uninstall
 
-To uninstall SSHM:
+Unix/Linux/macOS:
 
 ```bash
 sudo rm /usr/local/bin/sshm
+```
+
+Windows:
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\sshm\sshm.exe"
 ```
