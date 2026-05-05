@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -599,9 +600,37 @@ func gitCommandEnv(extraEnv []string) []string {
 		env = append(env, "GIT_TERMINAL_PROMPT=0")
 	}
 	if !envHasKey(env, "GIT_SSH_COMMAND") && !envHasKey(extraEnv, "GIT_SSH_COMMAND") {
-		env = append(env, "GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new")
+		env = append(env, "GIT_SSH_COMMAND="+defaultGitSSHCommand())
 	}
 	return append(env, extraEnv...)
+}
+
+func defaultGitSSHCommand() string {
+	sshPath := "ssh"
+	if windowsSSHPath := windowsOpenSSHPath(); windowsSSHPath != "" {
+		sshPath = windowsSSHPath
+	}
+	return sshPath + " -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
+}
+
+func windowsOpenSSHPath() string {
+	if runtime.GOOS != "windows" {
+		return ""
+	}
+
+	windowsDir := os.Getenv("WINDIR")
+	if windowsDir == "" {
+		windowsDir = os.Getenv("SystemRoot")
+	}
+	if windowsDir == "" {
+		return ""
+	}
+
+	sshPath := filepath.Join(windowsDir, "System32", "OpenSSH", "ssh.exe")
+	if _, err := os.Stat(sshPath); err != nil {
+		return ""
+	}
+	return filepath.ToSlash(sshPath)
 }
 
 func envHasKey(env []string, key string) bool {
