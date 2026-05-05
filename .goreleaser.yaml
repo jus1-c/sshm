@@ -74,26 +74,6 @@ changelog:
   - title: Others
     order: 999
 
-# Homebrew tap configuration (Formula pour CLI)
-brews:
-- name: sshm
-  repository:
-    owner: jus1-c
-    name: homebrew-sshm
-    # Token with repo permissions for your homebrew-sshm repo
-    token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-  commit_author:
-    name: goreleaserbot
-    email: bot@goreleaser.com
-  commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
-  homepage: "https://github.com/jus1-c/sshm"
-  description: "A modern SSH connection manager for your terminal"
-  license: MIT
-  skip_upload: auto
-  # Test command to verify installation
-  test: |
-    system "#{bin}/sshm --version"
-
 # Release configuration
 release:
   github:
@@ -111,12 +91,6 @@ release:
 
   footer: |
     ## Installation
-
-    ### Homebrew (macOS/Linux)
-    ```bash
-    brew tap jus1-c/sshm
-    brew install sshm
-    ```
 
     ### Installation Script (Recommended)
     **Unix/Linux/macOS:**

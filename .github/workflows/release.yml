@@ -7,9 +7,6 @@ on:
 
 permissions:
   contents: write
-  # Required for Homebrew tap updates
-  issues: write
-  pull-requests: write
 
 jobs:
   goreleaser:
@@ -35,5 +32,3 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Token for updating Homebrew tap (create this secret in your repo settings)
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
