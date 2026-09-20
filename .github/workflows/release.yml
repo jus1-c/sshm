@@ -3,10 +3,20 @@ name: Release with GoReleaser
 on:
   push:
     tags:
-      - '*'
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to release (for example v1.12.2)'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   goreleaser:
@@ -15,14 +25,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          # Release the requested tag on manual runs, otherwise the pushed tag.
+          ref: ${{ inputs.tag || github.ref }}
           # Fetch full history for changelog generation
           fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.23'
+          go-version-file: go.mod
           cache: true
+
+      - name: Validate GoReleaser config
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: check
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
