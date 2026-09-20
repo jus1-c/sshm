@@ -32,7 +32,7 @@ builds:
   - CGO_ENABLED=0
   ldflags:
   - -s -w
-  - -X github.com/Gu1llaum-3/sshm/cmd.AppVersion={{.Version}}
+  - -X github.com/jus1-c/sshm/cmd.AppVersion={{.Version}}
   flags:
   - -trimpath
 

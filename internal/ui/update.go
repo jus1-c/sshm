@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Gu1llaum-3/sshm/internal/config"
-	"github.com/Gu1llaum-3/sshm/internal/connectivity"
-	"github.com/Gu1llaum-3/sshm/internal/syncer"
-	"github.com/Gu1llaum-3/sshm/internal/version"
+	"github.com/jus1-c/sshm/internal/config"
+	"github.com/jus1-c/sshm/internal/connectivity"
+	"github.com/jus1-c/sshm/internal/syncer"
+	"github.com/jus1-c/sshm/internal/version"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"

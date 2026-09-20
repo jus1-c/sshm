@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Gu1llaum-3/sshm/internal/config"
-	"github.com/Gu1llaum-3/sshm/internal/syncer"
+	"github.com/jus1-c/sshm/internal/config"
+	"github.com/jus1-c/sshm/internal/syncer"
 
 	"github.com/spf13/cobra"
 )

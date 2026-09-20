@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"github.com/Gu1llaum-3/sshm/internal/config"
-	"github.com/Gu1llaum-3/sshm/internal/connectivity"
-	"github.com/Gu1llaum-3/sshm/internal/history"
-	"github.com/Gu1llaum-3/sshm/internal/version"
+	"github.com/jus1-c/sshm/internal/config"
+	"github.com/jus1-c/sshm/internal/connectivity"
+	"github.com/jus1-c/sshm/internal/history"
+	"github.com/jus1-c/sshm/internal/version"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"

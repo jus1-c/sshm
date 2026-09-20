@@ -4,7 +4,7 @@
 VERSION ?= dev
 
 # Go build flags
-LDFLAGS := -s -w -X github.com/Gu1llaum-3/sshm/cmd.AppVersion=$(VERSION)
+LDFLAGS := -s -w -X github.com/jus1-c/sshm/cmd.AppVersion=$(VERSION)
 
 # Build with specific version
 build:

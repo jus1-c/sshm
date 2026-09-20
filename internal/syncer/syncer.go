@@ -13,10 +13,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Gu1llaum-3/sshm/internal/config"
+	"github.com/jus1-c/sshm/internal/config"
 )
 
 // Action identifies a sync operation.
@@ -187,19 +188,24 @@ func (m Manager) Push(ctx context.Context) Result {
 	if err := m.exportToRepo(repoPath, &result); err != nil {
 		return failResult(result, err)
 	}
-	changed, err := m.commitAndPush(ctx, repoPath, &result)
+	changed, err := m.commitLocal(ctx, repoPath, &result)
 	if err != nil {
 		return failResult(result, err)
 	}
-	if changed {
-		result.Summary = "pushed local SSH files to sync repo"
-	} else {
+	if !changed {
 		result.Summary = "sync repo already matches local SSH files"
+		return result
 	}
+	if err := m.pushRepo(ctx, repoPath, &result); err != nil {
+		return failResult(result, err)
+	}
+	result.Summary = "pushed local SSH files to sync repo"
 	return result
 }
 
-// Sync pulls remote files, imports them locally, then pushes local state back.
+// Sync exports local files, merges remote changes, then imports the merged state.
+// Local files are exported before the remote state is imported so local edits are
+// never silently overwritten.
 func (m Manager) Sync(ctx context.Context) Result {
 	result := Result{Action: ActionSync, OK: true}
 	repoPath, err := m.ensureRepo(ctx, &result)
@@ -207,20 +213,25 @@ func (m Manager) Sync(ctx context.Context) Result {
 		return failResult(result, err)
 	}
 
-	if err := m.pullRepo(ctx, repoPath, &result); err != nil {
+	if err := m.exportToRepo(repoPath, &result); err != nil {
+		return failResult(result, err)
+	}
+	localChanged, err := m.commitLocal(ctx, repoPath, &result)
+	if err != nil {
+		return failResult(result, err)
+	}
+	remoteChanged, err := m.mergeRepo(ctx, repoPath, &result)
+	if err != nil {
 		return failResult(result, err)
 	}
 	if err := m.importFromRepo(repoPath, &result); err != nil {
 		return failResult(result, err)
 	}
-	if err := m.exportToRepo(repoPath, &result); err != nil {
+	if err := m.pushRepo(ctx, repoPath, &result); err != nil {
 		return failResult(result, err)
 	}
-	changed, err := m.commitAndPush(ctx, repoPath, &result)
-	if err != nil {
-		return failResult(result, err)
-	}
-	if changed {
+
+	if localChanged || remoteChanged {
 		result.Summary = "synced local SSH files with private repo"
 	} else {
 		result.Summary = "local SSH files and sync repo are already aligned"
@@ -301,7 +312,7 @@ func (m Manager) exportToRepo(repoPath string, result *Result) error {
 	}
 
 	if m.SyncConfig.ShouldSyncSSHConfig() {
-		if err := copyFileIfExists(sshConfigPath, filepath.Join(repoSSHDir, "config"), 0644, false); err != nil {
+		if _, err := copyFileIfExists(sshConfigPath, filepath.Join(repoSSHDir, "config"), 0644, false); err != nil {
 			return err
 		}
 		result.Details = append(result.Details, "exported SSH config")
@@ -368,7 +379,7 @@ func (m Manager) exportIncludedConfigs(repoSSHDir, sshConfigPath string, result 
 		if err != nil {
 			continue
 		}
-		if err := copyFileIfExists(absFile, filepath.Join(includedDir, rel), 0644, false); err != nil {
+		if _, err := copyFileIfExists(absFile, filepath.Join(includedDir, rel), 0644, false); err != nil {
 			return err
 		}
 		copied++
@@ -407,7 +418,7 @@ func (m Manager) exportPublicKeys(repoSSHDir string, result *Result) error {
 		if err != nil {
 			return err
 		}
-		if err := copyFileIfExists(path, filepath.Join(repoKeyDir, rel), 0644, false); err != nil {
+		if _, err := copyFileIfExists(path, filepath.Join(repoKeyDir, rel), 0644, false); err != nil {
 			return err
 		}
 		copied++
@@ -434,8 +445,12 @@ func (m Manager) importFromRepo(repoPath string, result *Result) error {
 	}
 
 	if m.SyncConfig.ShouldSyncSSHConfig() {
-		if err := copyFileIfExists(filepath.Join(repoSSHDir, "config"), sshConfigPath, 0600, true); err != nil {
+		backupPath, err := copyFileIfExists(filepath.Join(repoSSHDir, "config"), sshConfigPath, 0600, true)
+		if err != nil {
 			return err
+		}
+		if backupPath != "" {
+			result.Details = append(result.Details, fmt.Sprintf("backed up %s -> %s", sshConfigPath, backupPath))
 		}
 		result.Details = append(result.Details, "imported SSH config")
 	}
@@ -477,8 +492,13 @@ func (m Manager) importIncludedConfigs(repoSSHDir string, result *Result) error 
 		if err != nil {
 			return err
 		}
-		if err := copyFileIfExists(path, filepath.Join(sshDir, rel), 0600, true); err != nil {
+		dst := filepath.Join(sshDir, rel)
+		backupPath, err := copyFileIfExists(path, dst, 0600, true)
+		if err != nil {
 			return err
+		}
+		if backupPath != "" {
+			result.Details = append(result.Details, fmt.Sprintf("backed up %s -> %s", dst, backupPath))
 		}
 		copied++
 		return nil
@@ -513,8 +533,13 @@ func (m Manager) importPublicKeys(repoSSHDir string, result *Result) error {
 		if err != nil {
 			return err
 		}
-		if err := copyFileIfExists(path, filepath.Join(destDir, rel), 0644, true); err != nil {
+		dst := filepath.Join(destDir, rel)
+		backupPath, err := copyFileIfExists(path, dst, 0644, true)
+		if err != nil {
 			return err
+		}
+		if backupPath != "" {
+			result.Details = append(result.Details, fmt.Sprintf("backed up %s -> %s", dst, backupPath))
 		}
 		copied++
 		return nil
@@ -527,7 +552,40 @@ func (m Manager) importPublicKeys(repoSSHDir string, result *Result) error {
 	return nil
 }
 
-func (m Manager) commitAndPush(ctx context.Context, repoPath string, result *Result) (bool, error) {
+// mergeRepo fetches the remote branch and merges it into the local sync repo.
+// On conflict the merge is aborted and an error is returned so the caller can
+// stop before any local SSH file is touched.
+func (m Manager) mergeRepo(ctx context.Context, repoPath string, result *Result) (bool, error) {
+	branch := m.branch()
+	if output, err := runGit(ctx, repoPath, nil, "fetch", "origin", branch); err != nil {
+		return false, fmt.Errorf("failed to fetch sync repo: %s", outputOrError(output, err))
+	}
+
+	count, err := runGit(ctx, repoPath, nil, "rev-list", "--count", "HEAD..origin/"+branch)
+	if err != nil {
+		return false, fmt.Errorf("failed to inspect sync repo state: %s", outputOrError(count, err))
+	}
+	behind, _ := strconv.Atoi(strings.TrimSpace(count))
+	if behind == 0 {
+		result.Details = append(result.Details, "remote has no new changes")
+		return false, nil
+	}
+
+	if output, err := runGit(ctx, repoPath, nil, "pull", "--no-rebase", "origin", branch); err != nil {
+		m.abortMerge(ctx, repoPath)
+		return false, fmt.Errorf("remote has conflicting changes; resolve them manually in %s: %s", repoPath, outputOrError(output, err))
+	}
+	result.Details = append(result.Details, "merged remote changes")
+	return true, nil
+}
+
+func (m Manager) abortMerge(ctx context.Context, repoPath string) {
+	if _, err := os.Stat(filepath.Join(repoPath, ".git", "MERGE_HEAD")); err == nil {
+		_, _ = runGit(ctx, repoPath, nil, "merge", "--abort")
+	}
+}
+
+func (m Manager) commitLocal(ctx context.Context, repoPath string, result *Result) (bool, error) {
 	status, err := runGit(ctx, repoPath, nil, "status", "--porcelain")
 	if err != nil {
 		return false, fmt.Errorf("failed to inspect sync repo status: %s", outputOrError(status, err))
@@ -542,11 +600,16 @@ func (m Manager) commitAndPush(ctx context.Context, repoPath string, result *Res
 	if output, err := runGit(ctx, repoPath, m.gitEnv(), "commit", "-m", "Sync SSHM configuration"); err != nil {
 		return false, fmt.Errorf("failed to commit sync files: %s", outputOrError(output, err))
 	}
-	if output, err := runGit(ctx, repoPath, nil, "push", "origin", m.branch()); err != nil {
-		return false, fmt.Errorf("failed to push sync repo: %s", outputOrError(output, err))
-	}
-	result.Details = append(result.Details, "committed and pushed sync changes")
+	result.Details = append(result.Details, "committed local sync changes")
 	return true, nil
+}
+
+func (m Manager) pushRepo(ctx context.Context, repoPath string, result *Result) error {
+	if output, err := runGit(ctx, repoPath, nil, "push", "origin", m.branch()); err != nil {
+		return fmt.Errorf("failed to push sync repo: %s", outputOrError(output, err))
+	}
+	result.Details = append(result.Details, "pushed sync changes")
+	return nil
 }
 
 func (m Manager) branch() string {
@@ -690,50 +753,57 @@ func isWithinDir(path, dir string) bool {
 	return err == nil && rel != "." && !strings.HasPrefix(rel, "..") && !filepath.IsAbs(rel)
 }
 
-func copyFileIfExists(src, dst string, mode fs.FileMode, backup bool) error {
+func copyFileIfExists(src, dst string, mode fs.FileMode, backup bool) (string, error) {
 	if _, err := os.Stat(src); errors.Is(err, os.ErrNotExist) {
-		return nil
+		return "", nil
 	}
 	return copyFile(src, dst, mode, backup)
 }
 
-func copyFile(src, dst string, mode fs.FileMode, backup bool) error {
+// copyFile copies src over dst and, when backup is true, returns the path of the
+// backup created for the previous dst content (empty when no backup was needed).
+func copyFile(src, dst string, mode fs.FileMode, backup bool) (string, error) {
 	equal, err := filesEqual(src, dst)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if equal {
-		return nil
+		return "", nil
 	}
 
+	backupPath := ""
 	if backup {
-		if err := backupFile(dst); err != nil {
-			return err
+		backupPath, err = backupFile(dst)
+		if err != nil {
+			return "", err
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
-		return err
+		return "", err
 	}
 
 	in, err := os.Open(src)
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer in.Close()
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, mode)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if _, err := io.Copy(out, in); err != nil {
 		out.Close()
-		return err
+		return "", err
 	}
 	if err := out.Close(); err != nil {
-		return err
+		return "", err
 	}
-	return os.Chmod(dst, mode)
+	if err := os.Chmod(dst, mode); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
 
 func filesEqual(a, b string) (bool, error) {
@@ -751,20 +821,24 @@ func filesEqual(a, b string) (bool, error) {
 	return string(aBytes) == string(bBytes), nil
 }
 
-func backupFile(path string) error {
+func backupFile(path string) (string, error) {
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		return nil
+		return "", nil
 	}
 	backupDir, err := config.GetSSHMBackupDir()
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return err
+		return "", err
 	}
 
 	hash := sha256.Sum256([]byte(path))
 	suffix := hex.EncodeToString(hash[:])[:8]
 	backupName := fmt.Sprintf("%s.%s.%s.sync.backup", filepath.Base(path), time.Now().Format("20060102150405"), suffix)
-	return copyFile(path, filepath.Join(backupDir, backupName), 0600, false)
+	backupPath := filepath.Join(backupDir, backupName)
+	if _, err := copyFile(path, backupPath, 0600, false); err != nil {
+		return "", err
+	}
+	return backupPath, nil
 }
