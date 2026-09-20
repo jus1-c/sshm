@@ -2,20 +2,22 @@ name: Release with GoReleaser
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
   workflow_dispatch:
     inputs:
-      tag:
-        description: 'Existing tag to release (for example v1.12.2)'
-        required: true
+      version:
+        description: 'Version tag to release (for example v1.13.0). Leave empty to auto-bump from commits.'
+        required: false
         type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
@@ -25,9 +27,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Release the requested tag on manual runs, otherwise the pushed tag.
-          ref: ${{ inputs.tag || github.ref }}
-          # Fetch full history for changelog generation
+          # Release the requested tag on manual runs, otherwise the pushed ref.
+          ref: ${{ inputs.version || github.ref }}
+          # Fetch full history so tags and the changelog range are available
           fetch-depth: 0
 
       - name: Set up Go
@@ -36,7 +38,81 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Determine release tag
+        id: version
+        env:
+          MANUAL_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          # A tag push releases that tag as-is.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Releasing pushed tag ${GITHUB_REF_NAME}"
+            exit 0
+          fi
+
+          # An explicit version wins over auto-bumping.
+          if [ -n "${MANUAL_VERSION}" ]; then
+            echo "tag=${MANUAL_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Releasing requested tag ${MANUAL_VERSION}"
+            exit 0
+          fi
+
+          latest=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n1)
+          if [ -z "$latest" ]; then
+            tag="v0.1.0"
+          else
+            if [ "$(git rev-list --count "${latest}..HEAD")" = "0" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "No commits since ${latest}; nothing to release."
+              exit 0
+            fi
+
+            bump=patch
+            if git log "${latest}..HEAD" --format=%B | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE'; then
+              bump=major
+            elif git log "${latest}..HEAD" --format=%s | grep -qE '^feat(\([^)]*\))?:'; then
+              bump=minor
+            fi
+
+            v="${latest#v}"
+            major="${v%%.*}"
+            rest="${v#*.}"
+            minor="${rest%%.*}"
+            patch="${rest#*.}"
+            patch="${patch%%-*}"
+            case "$bump" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              patch) patch=$((patch + 1)) ;;
+            esac
+            tag="v${major}.${minor}.${patch}"
+            echo "Bumping ${latest} -> ${tag} (${bump})"
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push tag
+        if: steps.version.outputs.skip != 'true' && github.ref_type != 'tag'
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "Tag ${TAG} already exists; releasing it as-is."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "${TAG}"
+          git push origin "${TAG}"
+
       - name: Validate GoReleaser config
+        if: steps.version.outputs.skip != 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -44,6 +120,7 @@ jobs:
           args: check
 
       - name: Run GoReleaser
+        if: steps.version.outputs.skip != 'true'
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -51,3 +128,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.tag }}
