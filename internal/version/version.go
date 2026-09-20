@@ -10,6 +10,11 @@ import (
 	"time"
 )
 
+const (
+	repoOwner = "jus1-c"
+	repoName  = "sshm"
+)
+
 // GitHubRelease represents a GitHub release response
 type GitHubRelease struct {
 	TagName    string `json:"tag_name"`
@@ -99,7 +104,7 @@ func CheckForUpdates(ctx context.Context, currentVersion string) (*UpdateInfo, e
 
 	// Create request with context
 	req, err := http.NewRequestWithContext(ctx, "GET",
-		"https://api.github.com/repos/jus1-c/sshm/releases/latest", nil)
+		fmt.Sprintf("https://api.github.com/repos/%s/%s/releases/latest", repoOwner, repoName), nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

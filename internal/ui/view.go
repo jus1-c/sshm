@@ -230,6 +230,7 @@ func (m Model) renderUpdateNotification() string {
 	if m.updateInfo.ReleaseURL != "" {
 		message += fmt.Sprintf(" • View release: %s", m.updateInfo.ReleaseURL)
 	}
+	message += " • Run: sshm update"
 
 	// Style the notification with a bright color to make it stand out
 	notificationStyle := lipgloss.NewStyle().
