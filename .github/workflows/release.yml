@@ -71,11 +71,19 @@ jobs:
               exit 0
             fi
 
-            bump=patch
+            bump=""
             if git log "${latest}..HEAD" --format=%B | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE'; then
               bump=major
             elif git log "${latest}..HEAD" --format=%s | grep -qE '^feat(\([^)]*\))?:'; then
               bump=minor
+            elif git log "${latest}..HEAD" --format=%s | grep -qE '^(fix|perf)(\([^)]*\))?:'; then
+              bump=patch
+            fi
+
+            if [ -z "$bump" ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "No feat/fix/perf/breaking commits since ${latest}; nothing to release."
+              exit 0
             fi
 
             v="${latest#v}"
